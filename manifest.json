@@ -1,21 +1,17 @@
 {
-  "background_color": "#00ff00",
-  "dir": "ltr",
+  "name": "AmiiboLink Controller",
+  "short_name": "AmiiboLink",
+  "description": "AmiiboLink Web Bluetooth App",
+  "start_url": "./index.html",
   "display": "standalone",
-  "name": "Amiibolink",
-  "orientation": "any",
-  "scope": "/",
-  "short_name": "Amiibolink",
-  "start_url": "/",
-  "theme_color": "#00ff00",
-  "id": "Amiibolink",
-  "description": "Amiibolink controller",
-  "display_override": [
-    "window-controls-overlay",
-    "fullscreen"
-  ],
-  "lang": "en",
-  "categories": [
-    "utilities"
+  "background_color": "#ffffff",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "https://via.placeholder.com/512",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
   ]
 }
