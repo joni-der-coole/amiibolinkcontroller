@@ -1,0 +1,21 @@
+{
+  "background_color": "#00ff00",
+  "dir": "ltr",
+  "display": "standalone",
+  "name": "Amiibolink",
+  "orientation": "any",
+  "scope": "/",
+  "short_name": "Amiibolink",
+  "start_url": "/",
+  "theme_color": "#00ff00",
+  "id": "Amiibolink",
+  "description": "Amiibolink controller",
+  "display_override": [
+    "window-controls-overlay",
+    "fullscreen"
+  ],
+  "lang": "en",
+  "categories": [
+    "utilities"
+  ]
+}

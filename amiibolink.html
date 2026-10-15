@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>AmiiboLink WebBluetooth</title>
+    <meta charset="UTF-8" />
+    <style type="text/css">
+      body {
+        font-family: -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans",Helvetica,Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji";
+      }
+    </style>
+  </head>
+  <body>
+    <h1>AmiiboLink Management</h1>
+    <p>This page uses WebBluetooth to manage the AmiiboLink.</p>
+    <p><a id="connectDisconnect" href="#">Connect</a></p>
+    <div id="connectedStuff" style="display: none;">
+      <ul>
+        <li><a id="uploadTag" href="#">Upload tag data</a></li>
+        <li><a id="clearTag" href="#">Write blank tag</a></li>
+        <li><a id="autoRandom" href="#">Automatic Random</a></li>
+        <li><a id="manualRandom" href="#">Manual Random</a></li>
+        <li><a id="sequential" href="#">Sequential</a></li>
+        <li><a id="factoryReset" href="#">Factory Reset</a></li>
+        <li><a id="info" href="#">Info</a></li>
+      </ul>
+    </div>
+    <script>
+      var blockerElement = document.createElement("div");
+      blockerElement.style = "background-color: rgba(0, 0, 0, 0.5); align-items: center; justify-content: center; position: fixed; inset: 0px; backdrop-filter: blur(4px); color: white; font-weight: bold; font-size: 2rem; display: none; transition: all 0.3s ease 0s; opacity: 0;";
+      document.body.append(blockerElement);
+
+      var amiiboLink = null;
+
+      /**
+       * Prompts the user to select a file and returns its contents as a Uint8Array.
+       * @returns {Promise<Uint8Array>} A promise that resolves with the file contents as a Uint8Array.
+       * @throws {Error} If no file is selected or if there is an error reading the file.
+       */
+      function promptForFileAndGetContents() {
+        return new Promise((resolve, reject) => {
+          // Create an input element
+          const input = document.createElement('input');
+          input.type = 'file';
+
+          // Handle file selection
+          input.onchange = (event) => {
+            var _a;
+            const target = event.target;
+            const file = (_a = target.files) === null || _a === void 0 ? void 0 : _a[0];
+            if (file) {
+              const reader = new FileReader();
+              reader.onload = (loadEvent) => {
+                var _a;
+                const result = (_a = loadEvent.target) === null || _a === void 0 ? void 0 : _a.result;
+                if (result instanceof ArrayBuffer) {
+                  resolve(new Uint8Array(result));
+                } else {
+                  reject(new Error('Failed to read file contents.'));
+                }
+              };
+              reader.onerror = () => {
+                reject(new Error('Failed to read file.'));
+              };
+              reader.readAsArrayBuffer(file);
+            } else {
+              reject(new Error('No file selected.'));
+            }
+          };
+
+          // Trigger file selection
+          input.click();
+        });
+      }
+
+      function processDumpToAmiiboLinkCommands(inputArray) {
+        const writeCommands = [];
+
+        // Ensure the working array is exactly 540 bytes
+        const workingArray = new Uint8Array(540);
+        workingArray.set(inputArray.slice(0, 540), 0);
+
+        // Add initial byte arrays to the output
+        writeCommands.push(Uint8Array.from([0xA0, 0xB0]));
+        writeCommands.push(Uint8Array.from([0xAC, 0xAC, 0x00, 0x04, 0x00, 0x00, 0x02, 0x1C]));
+        writeCommands.push(Uint8Array.from([0xAB, 0xAB, 0x02, 0x1C]));
+
+        // Loop through the input array and slice 20 bytes at a time
+        for (let i = 0; i < workingArray.length; i += 20) {
+          const slice = workingArray.slice(i, i + 20);
+          const iteration = Math.floor(i / 20) + 1;
+
+          // Create temporary Uint8Array with required values
+          const tempArray = Uint8Array.from([
+            0xDD, 0xAA, 0x00, 0x14,
+            ...slice,
+            0x00,
+            iteration
+          ]);
+
+          // Add temporary array to the output
+          writeCommands.push(tempArray);
+        }
+
+        // Add final byte arrays to the output
+        writeCommands.push(Uint8Array.from([0xBC, 0xBC]));
+        writeCommands.push(Uint8Array.from([0xCC, 0xDD]));
+
+        return writeCommands;
+      }
+
+      /**
+       * Converts an ArrayBuffer to a hexadecimal string.
+       * @param {ArrayBuffer} buffer - The input ArrayBuffer to convert.
+       * @returns {string} The hexadecimal representation of the input buffer.
+       */
+       function buf2hex(buffer) {
+        buffer = new Uint8Array(buffer);
+
+        let result = '';
+
+        for (let i = 0; i < buffer.length; i++) {
+          const hex = buffer[i].toString(16).padStart(2, '0');
+          result += hex.toUpperCase() + ' ';
+
+          if ((i + 1) % 8 === 0) {
+            result += '\n';
+          }
+        }
+
+        return result.trim();
+      }
+
+      async function connectToAmiiboLink(onDisconnect, deviceIdentifier) {
+        try {
+          let device;
+
+          // Check if deviceIdentifier is provided and reconnect if available
+          if (deviceIdentifier && navigator.bluetooth.getDevices) {
+            const devices = await navigator.bluetooth.getDevices();
+            device = devices.find(d => d.id === deviceIdentifier);
+          }
+
+          // If device not found or deviceIdentifier not provided, perform a new scan
+          if (!device) {
+            device = await navigator.bluetooth.requestDevice({
+              filters: [{
+                name: 'amiibolink'
+              }],
+              optionalServices: ['6e400001-b5a3-f393-e0a9-e50e24dcca9e']
+            });
+          }
+
+          await device.gatt.disconnect();
+
+          const server = await device.gatt.connect();
+          const service = await server.getPrimaryService('6e400001-b5a3-f393-e0a9-e50e24dcca9e');
+          const characteristicTX = await service.getCharacteristic('6e400002-b5a3-f393-e0a9-e50e24dcca9e');
+          const characteristicRX = await service.getCharacteristic('6e400003-b5a3-f393-e0a9-e50e24dcca9e');
+
+
+          // Add disconnect event listener
+          device.addEventListener('gattserverdisconnected', () => {
+            if (typeof onDisconnect === 'function') {
+              onDisconnect();
+            }
+          });
+
+          characteristicRX.addEventListener('characteristicvaluechanged', function(event) {
+            const data = event.target.value;
+            // Handle received data here
+            console.log(`\x1B[1mRead data\x1B[m\n${buf2hex(data.buffer)}`);
+          });
+
+
+          await characteristicRX.startNotifications();
+
+          const characteristics = {
+            device,
+            service,
+            server,
+            characteristicTX,
+            characteristicRX
+          }
+
+          return characteristics;
+        } catch (error) {
+          console.error('Error:', error);
+          throw error;
+        }
+      }
+
+      function sendAndWait(characteristics, data) {
+        return new Promise(async (resolve, reject) => {
+          try {
+            const { characteristicTX, characteristicRX } = characteristics;
+
+            function innerResolve(event) {
+              characteristicRX.removeEventListener('characteristicvaluechanged', innerResolve)
+              resolve(event.target.value)
+            }
+
+            characteristicRX.addEventListener('characteristicvaluechanged', innerResolve);
+
+            await characteristicTX.writeValueWithResponse(data);
+          } catch (error) {
+            console.error('Error:', error);
+            reject(error);
+          }
+        })
+      }
+
+      async function sendDataToAmiiboLink(characteristics, data, noWait) {
+        let i = 0;
+
+        try {
+          const { characteristicTX, characteristicRX } = characteristics;
+
+          for (const byteArray of data) {
+            blockerElement.innerText = `Sending ${++i} / ${data.length}`;
+            console.log(`\x1B[1mWrite data\x1B[m\n${buf2hex(byteArray)}`);
+
+            if (noWait) {
+              await characteristicTX.writeValueWithResponse(byteArray);
+            } else {
+              await sendAndWait(characteristics, byteArray);
+            }
+          }
+        } catch (error) {
+          console.error('Error:', error);
+          throw error;
+        }
+      }
+
+      /**
+       * This function generates and returns a 572-byte array populated with the data of a blank NTAG215 with a random UID.
+       * @returns An array with blank NTAG215 data.
+       */
+      function getBlankNtag() {
+        const tag = new Uint8Array(572)
+
+        tag[0] = 0x04
+        tag[1] = Math.round(Math.random() * 255)
+        tag[2] = Math.round(Math.random() * 255)
+        tag[3] = tag[0] ^ tag[1] ^ tag[2] ^ 0x88
+        tag[4] = Math.round(Math.random() * 255)
+        tag[5] = Math.round(Math.random() * 255)
+        tag[6] = Math.round(Math.random() * 255)
+        tag[7] = Math.round(Math.random() * 255)
+        tag[8] = tag[4] ^ tag[5] ^ tag[6] ^ tag[7]
+
+        tag.set([0x48, 0x00, 0x00, 0xE1, 0x10, 0x3E, 0x00, 0x03, 0x00, 0xFE], 0x09)
+        tag.set([0xBD, 0x04, 0x00, 0x00, 0xFF, 0x00, 0x05], 0x20B)
+
+        return tag
+      }
+
+      function onConnected() {
+       document.getElementById("connectedStuff").style.display = "";
+      }
+
+      function onDisconnected() {
+        document.getElementById("connectedStuff").style.display = "none";
+      }
+
+      function showBlocker() {
+        blockerElement.innerText = "";
+        blockerElement.style.display = "flex";
+        setTimeout(() => blockerElement.style.opacity = "1.0", 1);
+      }
+
+      function hideBlocker() {
+        blockerElement.style.opacity = 0;
+        setTimeout(() => blockerElement.style.display = "none", 300);
+      }
+
+      document.getElementById("connectDisconnect").addEventListener("click", async function(e) {
+        e.preventDefault();
+
+        if (amiiboLink) {
+          await amiiboLink.server.disconnect();
+          amiiboLink = null;
+
+          return;
+        }
+
+        amiiboLink = await connectToAmiiboLink(() => {
+          amiiboLink = null;
+          this.innerText = "Connect";
+          onDisconnected();
+        }, this.dataset.previousDevice);
+        this.innerText = "Disconnect"
+        onConnected();
+      });
+
+      document.getElementById("uploadTag").addEventListener("click", async function(e) {
+        e.preventDefault();
+
+        var fileData = await promptForFileAndGetContents();
+        var tagData = new Uint8Array(540);
+        tagData.set(fileData.slice(0, Math.min(540, fileData.length)), 0);
+
+        var chunkedData = processDumpToAmiiboLinkCommands(tagData);
+        showBlocker();
+        await sendDataToAmiiboLink(amiiboLink, chunkedData);
+        hideBlocker();
+      })
+
+      document.getElementById("clearTag").addEventListener("click", async function(e) {
+        e.preventDefault();
+
+        var tagData = new Uint8Array(540);
+        tagData.set(getBlankNtag().slice(0, 540), 0);
+
+        var chunkedData = processDumpToAmiiboLinkCommands(tagData);
+        showBlocker();
+        await sendDataToAmiiboLink(amiiboLink, chunkedData);
+        hideBlocker();
+      })
+
+      document.getElementById("autoRandom").addEventListener("click", async function(e) {
+        e.preventDefault();
+
+        showBlocker();
+        await sendDataToAmiiboLink(amiiboLink, [Uint8Array.from([0x00, 0x00, 0x10, 0x03, 0xE3, 0x96, 0x51, 0xEC, 0x07, 0xE7, 0xE5, 0x54, 0x37, 0xB6, 0x13, 0x8E, 0x80, 0xC9, 0xB3, 0x09])]);
+        hideBlocker();
+      });
+
+      document.getElementById("manualRandom").addEventListener("click", async function(e) {
+        e.preventDefault();
+
+        showBlocker();
+        await sendDataToAmiiboLink(amiiboLink, [Uint8Array.from([0x00, 0x00, 0x10, 0x03, 0x34, 0x1F, 0x98, 0xE8, 0x46, 0x19, 0x85, 0x75, 0xE3, 0xD3, 0xE0, 0x42, 0x5D, 0x41, 0x89, 0x42])]);
+        hideBlocker();
+      });
+
+      document.getElementById("sequential").addEventListener("click", async function(e) {
+        e.preventDefault();
+
+        showBlocker();
+        await sendDataToAmiiboLink(amiiboLink, [Uint8Array.from([0x00, 0x00, 0x10, 0x03, 0x2F, 0x25, 0xD8, 0x0C, 0x49, 0x42, 0xC0, 0xD5, 0x0B, 0x0B, 0xC6, 0xDF, 0xCA, 0x60, 0x21, 0xFC])]);
+        hideBlocker();
+      });
+
+      document.getElementById("factoryReset").addEventListener("click", async function(e) {
+        e.preventDefault();
+
+        showBlocker();
+        await sendDataToAmiiboLink(amiiboLink, [Uint8Array.from([0x00, 0x00, 0x10, 0x02, 0xAA, 0x54, 0x54, 0x2B, 0xD5, 0xCC, 0x22, 0x42, 0x36, 0x7D, 0x6D, 0xB2, 0x6A, 0xAC, 0xA6, 0xAC])]);
+        hideBlocker();
+      });
+
+      document.getElementById("info").addEventListener("click", async function(e) {
+        e.preventDefault();
+
+        showBlocker();
+        await sendDataToAmiiboLink(amiiboLink, [Uint8Array.from([0x00, 0x00, 0x10, 0x02, 0x33, 0x53, 0x34, 0xAB, 0x1F, 0xE8, 0xC2, 0x6D, 0xE5, 0x35, 0x27, 0x4B, 0x52, 0xE0, 0x1F, 0x26])]);
+        hideBlocker();
+      });
+
+
+    </script>
+  </body>
+</html>
