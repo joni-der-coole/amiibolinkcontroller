@@ -8,8 +8,8 @@
   "theme_color": "#000000",
   "icons": [
     {
-      "src": "https://via.placeholder.com/512",
-      "sizes": "512x512",
+      "src": "https://joni-der-coole.github.io/amiibolinkcontroller/Amiibo.png",
+      "sizes": "275x275",
       "type": "image/png",
       "purpose": "any maskable"
     }
