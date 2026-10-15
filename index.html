@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <link rel="manifest" href="./manifest.json">
     <title>AmiiboLink WebBluetooth</title>
     <meta charset="UTF-8" />
     <style type="text/css">
@@ -358,6 +359,20 @@
       });
 
 
-    </script>
+
+  </script>
+  <script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js')
+        .then((reg) => {
+          console.log('Service Worker erfolgreich registriert mit Scope:', reg.scope);
+        })
+        .catch((err) => {
+          console.log('Service Worker Registrierung fehlgeschlagen:', err);
+        });
+    });
+  }
+  </script>
   </body>
 </html>
